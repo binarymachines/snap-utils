@@ -96,9 +96,11 @@ class KinesisServiceObject(object):
 
         self.kinesis_client = boto3.client('kinesis', region_name=self.region)
 
+
     def generate_partition_key(self, record):
         return str(uuid.uuid4())
 
+    
     def bulk_write(self, record_dict_array, stream_name):
         input_records = []
         for record in record_dict_array:
@@ -112,3 +114,64 @@ class KinesisServiceObject(object):
         return self.kinesis_client.put_record(StreamName=stream_name,
                                               Data=json.dumps(record_dict).encode(),
                                               PartitionKey=pkey)
+
+
+class AWSEmailService(object):
+    def __init__(self, **kwargs):
+        self.region = kwargs.get('aws_region')
+	self.charset = 'utf-8'
+	self.ses_client = boto3.client('ses', region_name=self.region)
+
+
+    def _create_message(self, sender, recipient_list, subject, body):
+        # Create a multipart/alternative child container.
+        email_message = MIMEMultipart('mixed')
+        email_message['Subject'] = subject
+        email_message['From'] = sender
+        email_message['To'] = ', '.join(recipient_list)
+	# Encode the text and HTML content and set the character encoding. This step is
+	# necessary if you're sending a message with characters outside the ASCII range.
+	textpart = MIMEText(body.encode(self.charset), 'plain', charset)
+	htmlpart = MIMEText(body.encode(self.charset), 'html', charset)
+
+        msg_body = MIMEMultipart('alternative')
+	# Add the text and HTML parts to the child container.
+	msg_body.attach(textpart)
+	msg_body.attach(htmlpart)
+        email_message.attach(msg_body)
+
+	return email_message
+	
+
+    def _create_attachment(self, filename):
+        with open(filename, 'rb') as f:
+	    att = MIMEApplication(f.read())
+       	    att.add_header('Content-Disposition','attachment',filename=os.path.basename(filename))
+        return att
+
+
+    def send(self,
+	     sender_address,
+	     recipient_list,
+	     subject,
+	     body,
+	     attachment_filename=None):
+
+       	message = self.create_message(sender_address, recipient_list, subject, body)
+        if attachment_filename:
+            attachment = self._create_attachment(attachment_filename)
+            message.attach(attachment)
+        
+        try:
+            response = client.send_raw_email(
+                Source=sender_address,
+                Destinations=[r for r in recipient_list],
+                RawMessage={
+                    'Data':message.as_string(),
+                },
+                ConfigurationSetName=CONFIGURATION_SET
+            )
+
+            return response['MessageId']
+        except ClientError as e:        
+            raise e # or return an error code
