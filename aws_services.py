@@ -8,6 +8,7 @@ import uuid
 from snap import common
 import json
 import os
+from snap.loggers import transform_logger as log
 
 
 class S3Key(object):
@@ -28,6 +29,10 @@ class S3Key(object):
         return s3_key_string.split('/')[-1]
 
 
+conditional_auth_mesage = '''
+S3ServiceObject must pe passed the "aws_key_id" and "aws_secret_key"
+parameters if the "auth_via_iam" init param is not set (or is False).'''
+
 class S3ServiceObject():
     def __init__(self, **kwargs):
         kwreader = common.KeywordArgReader('local_temp_path')
@@ -43,17 +48,22 @@ class S3ServiceObject():
         should_authenticate_via_iam = kwargs.get('auth_via_iam', False)
 
         if not should_authenticate_via_iam:
+            log.info("NOT authenticating via IAM. Setting credentials now.")
             key_id = kwargs.get('aws_key_id')
             secret_key = kwargs.get('aws_secret_key')
             if not key_id or not secret_key:
-                raise Exception('''
-                S3ServiceObject must pe passed the "aws_key_id" and "aws_secret_key"
-                parameters if the "auth_via_iam" init param is not set (or is False).''')
+                raise Exception(conditional_auth_message)
+        
+            key_id = kwargs.get('aws_key_id')
+            secret_key = kwargs.get('aws_secret_key')            
+            self.s3client = boto3.client('s3',
+                                         aws_access_key_id=key_id,
+                                         aws_secret_access_key=secret_key)
+        else:
+            self.s3client = boto3.client('s3')
+            
 
-            self.s3session = session.Session(aws_access_key_id=key_id,
-                                             aws_secret_access_key=secret_key)
-        self.s3client = boto3.client('s3')
-
+        
     def upload_object(self, local_filename, bucket_name, bucket_path=None):
         s3_key = None
         with open(local_filename, 'rb') as data:
@@ -70,6 +80,7 @@ class S3ServiceObject():
         local_filename = os.path.join(self.local_tmp_path, s3_object_key.object_name)
         with open(local_filename, "wb") as f:
             self.s3client.download_fileobj(bucket_name, s3_object_key.full_name, f)
+
         return local_filename
 
 
@@ -119,8 +130,8 @@ class KinesisServiceObject(object):
 class AWSEmailService(object):
     def __init__(self, **kwargs):
         self.region = kwargs.get('aws_region')
-	self.charset = 'utf-8'
-	self.ses_client = boto3.client('ses', region_name=self.region)
+        self.charset = 'utf-8'
+        self.ses_client = boto3.client('ses', region_name=self.region)
 
 
     def _create_message(self, sender, recipient_list, subject, body):
@@ -129,35 +140,35 @@ class AWSEmailService(object):
         email_message['Subject'] = subject
         email_message['From'] = sender
         email_message['To'] = ', '.join(recipient_list)
-	# Encode the text and HTML content and set the character encoding. This step is
-	# necessary if you're sending a message with characters outside the ASCII range.
-	textpart = MIMEText(body.encode(self.charset), 'plain', charset)
-	htmlpart = MIMEText(body.encode(self.charset), 'html', charset)
+        # Encode the text and HTML content and set the character encoding. This step is
+        # necessary if you're sending a message with characters outside the ASCII range.
+        textpart = MIMEText(body.encode(self.charset), 'plain', charset)
+        htmlpart = MIMEText(body.encode(self.charset), 'html', charset)
 
         msg_body = MIMEMultipart('alternative')
-	# Add the text and HTML parts to the child container.
-	msg_body.attach(textpart)
-	msg_body.attach(htmlpart)
+        # Add the text and HTML parts to the child container.
+        msg_body.attach(textpart)
+        msg_body.attach(htmlpart)
         email_message.attach(msg_body)
 
-	return email_message
-	
+        return email_message
+        
 
     def _create_attachment(self, filename):
         with open(filename, 'rb') as f:
-	    att = MIMEApplication(f.read())
-       	    att.add_header('Content-Disposition','attachment',filename=os.path.basename(filename))
+            att = MIMEApplication(f.read())
+            att.add_header('Content-Disposition','attachment',filename=os.path.basename(filename))
         return att
 
 
     def send(self,
-	     sender_address,
-	     recipient_list,
-	     subject,
-	     body,
-	     attachment_filename=None):
+             sender_address,
+             recipient_list,
+             subject,
+             body,
+             attachment_filename=None):
 
-       	message = self.create_message(sender_address, recipient_list, subject, body)
+        message = self.create_message(sender_address, recipient_list, subject, body)
         if attachment_filename:
             attachment = self._create_attachment(attachment_filename)
             message.attach(attachment)
