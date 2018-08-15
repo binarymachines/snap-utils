@@ -29,9 +29,14 @@ class S3Key(object):
         return s3_key_string.split('/')[-1]
 
 
-conditional_auth_mesage = '''
+s3_auth_error_mesage = '''
 S3ServiceObject must pe passed the "aws_key_id" and "aws_secret_key"
 parameters if the "auth_via_iam" init param is not set (or is False).'''
+
+kinesis_auth_error_mesage = '''
+KinesisServiceObject must pe passed the "aws_key_id" and "aws_secret_key"
+parameters if the "auth_via_iam" init param is not set (or is False).'''
+
 
 class S3ServiceObject():
     def __init__(self, **kwargs):
@@ -52,10 +57,7 @@ class S3ServiceObject():
             key_id = kwargs.get('aws_key_id')
             secret_key = kwargs.get('aws_secret_key')
             if not key_id or not secret_key:
-                raise Exception(conditional_auth_message)
-        
-            key_id = kwargs.get('aws_key_id')
-            secret_key = kwargs.get('aws_secret_key')            
+                raise Exception(conditional_auth_message)           
             self.s3client = boto3.client('s3',
                                          aws_access_key_id=key_id,
                                          aws_secret_access_key=secret_key)
@@ -75,6 +77,7 @@ class S3ServiceObject():
             self.s3client.upload_fileobj(data, bucket_name, s3_key)
         return s3_key
 
+
     def download_object(self, bucket_name, s3_key_string):
         s3_object_key = S3Key(s3_key_string)
         local_filename = os.path.join(self.local_tmp_path, s3_object_key.object_name)
@@ -91,21 +94,20 @@ class KinesisServiceObject(object):
         kwreader.read(**kwargs)
         self.stream_name = kwreader.get_value('stream')
         self.region = kwreader.get_value('region')
-
         should_authenticate_via_iam = kwargs.get('auth_via_iam', False)
 
         if not should_authenticate_via_iam:
             key_id = kwargs.get('aws_key_id')
             secret_key = kwargs.get('aws_secret_key')
             if not key_id or not secret_key:
-                raise Exception('''KinesisServiceObject must pe passed the "aws_key_id"
-                and "aws_secret_key" parameters if the "auth_via_iam" init param is not
-                set (or is False).''')
+                raise Exception(kinesis_auth_error_mesage)
 
-            self.kinesis_session = session.Session(aws_access_key_id=key_id,
-                                                   aws_secret_access_key=secret_key)
-
-        self.kinesis_client = boto3.client('kinesis', region_name=self.region)
+            self.kinesis_client = boto3.client('kinesis',
+                                               aws_access_key_id=key_id,
+                                               aws_secret_access_key=secret_key,
+                                               region_name=self.region)
+        else:
+            self.kinesis_client = boto3.client('kinesis', region_name=self.region)
 
 
     def generate_partition_key(self, record):
@@ -119,6 +121,7 @@ class KinesisServiceObject(object):
             data = json.dumps(record).encode()   # defaults to utf-8
             input_records.append({'Data': data, 'PartitionKey': pkey})
         return self.kinesis_client.put_records(Records=input_records, StreamName=stream_name)
+
 
     def write(self, record_dict, stream_name):
         pkey = self.generate_partition_key(record_dict)
