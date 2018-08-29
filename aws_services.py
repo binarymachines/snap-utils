@@ -130,6 +130,55 @@ class KinesisServiceObject(object):
                                               PartitionKey=pkey)
 
 
+class AWSCognitoService(object):
+    def __init__(self, **kwargs):     
+        kwreader = common.KeywordArgReader('user_pool_id', 'client_id', 'aws_region', 'aws_secret_key', 'aws_key_id')
+        kwreader.read(**kwargs)
+        self.user_pool_id = kwreader.get_value('user_pool_id')
+        self.client_id = kwreader.get_value('client_id')
+        self.aws_region = kwreader.get_value('aws_region')
+        should_authenticate_via_iam = kwargs.get('auth_via_iam', False)
+
+        if not should_authenticate_via_iam:
+            key_id = kwargs.get('aws_key_id')
+            secret_key = kwargs.get('aws_secret_key')
+            if not key_id or not secret_key:
+                raise Exception(cognito_auth_error_mesage)
+        
+            print('creating cognito client...')
+            self.cognito_client = boto3.client('cognito-idp',
+                                               aws_access_key_id=key_id,
+                                               aws_secret_access_key=secret_key,
+                                               region_name=self.aws_region)
+        else:
+            self.cognito_client = boto3.client('cognito_idp', region_name=self.aws_region)
+
+        # ----- experimenting with different routines to solve unrecognized token problem  
+        #response = self.cognito_client.get_credentials_for_identity(IdentityId=self.user_pool_id)
+        #print(response)
+
+
+    def user_login(self, username, password, **kwargs):
+        payload = {}
+        payload['UserPoolId'] = self.user_pool_id
+        payload['ClientId'] = self.client_id
+        payload['AuthFlow'] = 'ADMIN_NO_SRP_AUTH'
+        payload['AuthParameters'] = {
+            'USERNAME': username,
+            'PASSWORD': password,
+            'SECRET_HASH': '1qcgl5959o84gjpbfg1f5sfd7cqcvjspi0u9q76e5l448osbdm3n'
+        }
+
+        print('### initiating auth with data:\n')
+
+        print(common.jsonpretty(payload))
+        
+        response = self.cognito_client.admin_initiate_auth(**payload)
+        # TODO: status = CognitoAuthStatus(response) and return the status object
+        return response
+
+
+
 class AWSEmailService(object):
     def __init__(self, **kwargs):
         self.region = kwargs.get('aws_region')
