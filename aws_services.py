@@ -2,12 +2,17 @@
 
 # Service objects for Squid-ink service
 
+
+import json
+import os
+import hashlib
+import hmac
+import base64
+from collections import namedtuple
 import boto3
 from boto3 import session
 import uuid
 from snap import common
-import json
-import os
 from snap.loggers import transform_logger as log
 
 
@@ -130,6 +135,8 @@ class KinesisServiceObject(object):
                                               PartitionKey=pkey)
 
 
+CognitoUserAttribute = namedtuple('CognitoUserAttribute', 'name value')
+
 class AWSCognitoService(object):
     def __init__(self, **kwargs):     
         kwreader = common.KeywordArgReader('user_pool_id', 'client_id', 'aws_region', 'aws_secret_key', 'aws_key_id')
@@ -137,6 +144,8 @@ class AWSCognitoService(object):
         self.user_pool_id = kwreader.get_value('user_pool_id')
         self.client_id = kwreader.get_value('client_id')
         self.aws_region = kwreader.get_value('aws_region')
+        self.client_secret = kwargs.get('client_secret')
+        
         should_authenticate_via_iam = kwargs.get('auth_via_iam', False)
 
         if not should_authenticate_via_iam:
@@ -146,6 +155,11 @@ class AWSCognitoService(object):
                 raise Exception(cognito_auth_error_mesage)
         
             print('creating cognito client...')
+
+            print('using aws access key ID %s' % key_id)
+            print('using aws secret access key %s' % secret_key)
+            
+            
             self.cognito_client = boto3.client('cognito-idp',
                                                aws_access_key_id=key_id,
                                                aws_secret_access_key=secret_key,
@@ -153,20 +167,56 @@ class AWSCognitoService(object):
         else:
             self.cognito_client = boto3.client('cognito_idp', region_name=self.aws_region)
 
-        # ----- experimenting with different routines to solve unrecognized token problem  
-        #response = self.cognito_client.get_credentials_for_identity(IdentityId=self.user_pool_id)
-        #print(response)
 
+    def generate_secret_hash(self, username):
+        if not self.client_secret:
+            raise Exception('Cognito client was spun up without specifying a client secret. Cannot create a valid secret hash.')
+        message = username + self.client_id
+        digest = hmac.new(self.client_secret.encode(),
+                          message.encode(),
+                          digestmod=hashlib.sha256).digest()
+        signature = base64.b64encode(digest).decode()
+        return signature
+
+    
+    def generate_temp_password(self):
+        return 'foobarpassword'
+
+            
+    def change_initial_password(self, username):
+        payload = {}
+        payload['ChallengeName'] = 'NEW_PASSWORD_REQUIRED'
+        payload['ClientId'] = self.client_id
+        payload['UserPoolId'] = self.user_pool_id
+        response = self.cognito_client.admin_respond_to_auth_challenge(**payload)
+        return response
+        
+            
+    def user_create(self, username, attribute_list=[], **kwargs):
+        payload = {}
+        payload['DesiredDeliveryMediums'] = ['EMAIL'] # how to send invitation message to new user
+        payload['ForceAliasCreation'] = False
+        payload['MessageAction'] = 'SUPPRESS' # re-send confirmation message if user already exists
+        payload['TemporaryPassword'] = self.generate_temp_password()
+        payload['UserAttributes'] = [{'Name': attr.name, 'Value': attr.value} for attr in attribute_list]
+        payload['Username'] = username
+        payload['UserPoolId'] = self.user_pool_id
+        # skip ValidationData parameter for now; may be required later
+        print('### creating user account with data:\n')
+        print(common.jsonpretty(payload))
+        response = self.cognito_client.admin_create_user(**payload)
+        return response
+        
 
     def user_login(self, username, password, **kwargs):
         payload = {}
         payload['UserPoolId'] = self.user_pool_id
         payload['ClientId'] = self.client_id
-        payload['AuthFlow'] = 'ADMIN_NO_SRP_AUTH'
+        payload['AuthFlow'] =  'ADMIN_NO_SRP_AUTH'
         payload['AuthParameters'] = {
             'USERNAME': username,
             'PASSWORD': password,
-            'SECRET_HASH': '1qcgl5959o84gjpbfg1f5sfd7cqcvjspi0u9q76e5l448osbdm3n'
+            'SECRET_HASH': self.generate_secret_hash(username)
         }
 
         print('### initiating auth with data:\n')
