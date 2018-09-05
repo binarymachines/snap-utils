@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
 '''Usage: 
-        cogtest.py --login --username=<username> --password=<password> [--save-token]
-        cogtest.py --newuser <username>
-        cogtest.py --initpw --username=<username> --password=<new-password> [--sessionfile=<filename>]
-        cogtest.py --reset --username=<username>
-        cogtest.py --verification-code <attribute>
-        cogtest.py --verify <attribute> <code>
+        cogtest.py <configfile> --login --username=<username> --password=<password> [--save-token]
+        cogtest.py <configfile> --newuser <username>
+        cogtest.py <configfile> --initpw --username=<username> --password=<new-password> [--sessionfile=<filename>]
+        cogtest.py <configfile> --reset --username=<username>
+        cogtest.py <configfile> --verification-code <attribute>
+        cogtest.py <configfile> --verify <attribute> <code>
 
 '''
 
@@ -14,12 +14,14 @@
 import os
 import sys
 import json
-from snap import common
+from snap import snap, common
 import aws_services as awss
 import docopt
+import yaml
 
 
 def main(args):
+    '''
     aws_key_id = os.getenv('AWS_ACCESS_KEY_ID')
     aws_key = os.getenv('AWS_SECRET_ACCESS_KEY')
     client_secret = os.getenv('COGNITO_CLIENT_SECRET')
@@ -31,6 +33,15 @@ def main(args):
                                        client_secret=client_secret, # optional, depending on client app setup
                                        aws_secret_key=aws_key,
                                        aws_key_id=aws_key_id)
+    '''
+
+    configfile = args['<configfile>']
+    yaml_config = None
+    with open(configfile) as f:
+        yaml_config = yaml.load(f)
+        
+    services = common.ServiceObjectRegistry(snap.initialize_services(yaml_config))
+    cognito_svc = services.lookup('cognito')
     result = None
 
     if args['--verify']:
