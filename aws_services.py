@@ -154,12 +154,6 @@ class AWSCognitoService(object):
             if not key_id or not secret_key:
                 raise Exception(cognito_auth_error_mesage)
         
-            print('creating cognito client...')
-
-            print('using aws access key ID %s' % key_id)
-            print('using aws secret access key %s' % secret_key)
-            
-            
             self.cognito_client = boto3.client('cognito-idp',
                                                aws_access_key_id=key_id,
                                                aws_secret_access_key=secret_key,
@@ -183,15 +177,40 @@ class AWSCognitoService(object):
         return 'foobarpassword'
 
             
-    def change_initial_password(self, username):
+    def change_initial_password(self, username, new_password, session_key):
         payload = {}
         payload['ChallengeName'] = 'NEW_PASSWORD_REQUIRED'
         payload['ClientId'] = self.client_id
         payload['UserPoolId'] = self.user_pool_id
-        response = self.cognito_client.admin_respond_to_auth_challenge(**payload)
-        return response
-        
-            
+        payload['ChallengeResponses'] = {
+            'NEW_PASSWORD': new_password,
+            'USERNAME': username,
+            'SECRET_HASH': self.generate_secret_hash(username)
+            }
+        payload['Session'] = session_key
+        return self.cognito_client.admin_respond_to_auth_challenge(**payload)
+
+
+    def reset_password(self, username):
+        payload = {
+            'Username': username,
+            'UserPoolId': self.user_pool_id
+            }
+        return self.cognito_client.admin_reset_user_password(**payload)
+
+    def verify_named_attribute(self, attr_name, access_token, code):
+        payload = {}
+        payload['AccessToken'] = access_token
+        payload['AttributeName'] = attr_name
+        payload['Code'] = code
+        return self.cognito_client.verify_user_attribute(**payload)
+
+    
+    def get_verification_code_for_named_attribute(self, attr_name, access_token):
+        return self.cognito_client.get_user_attribute_verification_code(AccessToken=access_token,
+                                                                        AttributeName=attr_name)
+
+    
     def user_create(self, username, attribute_list=[], **kwargs):
         payload = {}
         payload['DesiredDeliveryMediums'] = ['EMAIL'] # how to send invitation message to new user
@@ -202,12 +221,9 @@ class AWSCognitoService(object):
         payload['Username'] = username
         payload['UserPoolId'] = self.user_pool_id
         # skip ValidationData parameter for now; may be required later
-        print('### creating user account with data:\n')
-        print(common.jsonpretty(payload))
-        response = self.cognito_client.admin_create_user(**payload)
-        return response
-        
+        return self.cognito_client.admin_create_user(**payload)
 
+    
     def user_login(self, username, password, **kwargs):
         payload = {}
         payload['UserPoolId'] = self.user_pool_id
@@ -219,13 +235,9 @@ class AWSCognitoService(object):
             'SECRET_HASH': self.generate_secret_hash(username)
         }
 
-        print('### initiating auth with data:\n')
-
-        print(common.jsonpretty(payload))
-        
-        response = self.cognito_client.admin_initiate_auth(**payload)
+        return self.cognito_client.admin_initiate_auth(**payload)
         # TODO: status = CognitoAuthStatus(response) and return the status object
-        return response
+        
 
 
 
