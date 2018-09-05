@@ -20,21 +20,12 @@ import docopt
 import yaml
 
 
-def main(args):
-    '''
-    aws_key_id = os.getenv('AWS_ACCESS_KEY_ID')
-    aws_key = os.getenv('AWS_SECRET_ACCESS_KEY')
-    client_secret = os.getenv('COGNITO_CLIENT_SECRET')
-    client_id = os.getenv('COGNITO_CLIENT_ID')
-    pool_id = os.getenv('COGNITO_USER_POOL_ID')
-    cognito_svc = awss.AWSCognitoService(aws_region='us-east-1',
-                                       user_pool_id=pool_id,
-                                       client_id=client_id,
-                                       client_secret=client_secret, # optional, depending on client app setup
-                                       aws_secret_key=aws_key,
-                                       aws_key_id=aws_key_id)
-    '''
+def read_stdin():
+    raw_line = sys.stdin.readline()
+    return raw_line.lstrip().rstrip()
+    
 
+def main(args):
     configfile = args['<configfile>']
     yaml_config = None
     with open(configfile) as f:
@@ -46,17 +37,14 @@ def main(args):
 
     if args['--verify']:
         attr_name = args['<attribute>']
-        code = args['<code>']
-        
-        raw_line = sys.stdin.readline()
-        line = raw_line.lstrip().rstrip()
+        code = args['<code>']        
+        line = read_stdin()
         if line:
             access_token = line
         return cognito_svc.verify_named_attribute(attr_name, access_token, code)
     
     if args['--verification-code']:
-        raw_line = sys.stdin.readline()
-        line = raw_line.lstrip().rstrip()
+        line = read_stdin()
         if line:
             access_token = line
             result = cognito_svc.get_verification_code_for_named_attribute(args['<attribute>'], access_token)
@@ -89,17 +77,14 @@ def main(args):
         username = args['--username']
         new_password = args['--password']
         session = None
-        raw_line = sys.stdin.readline()
-        line = raw_line.lstrip().rstrip()
+        line = read_stdin()
         if line:
             session = line
         result = cognito_svc.change_initial_password(username, new_password, session)
         print('sent cognito request with result:', file=sys.stderr)
         print(json.dumps(result))
 
-    
-
-
+        
 if __name__ == '__main__':
     args = docopt.docopt(__doc__)
     main(args)
